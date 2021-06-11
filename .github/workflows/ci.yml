@@ -1,0 +1,41 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Continuous Integration
+
+# Controls when the action will run.
+on:
+  # Triggers the workflow on push or pull request events but only for the '*' branch
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ '*' ]
+    tags: [ '*' ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+env:
+  KONG_VERSION: 2.2.0
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    name: Build and Test
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+
+      - name: Checkout github branch
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Build pongo and run tests
+        run: |
+          git clone https://github.com/Kong/kong-pongo.git ../kong-pongo
+          ../kong-pongo/pongo.sh clean && ../kong-pongo/pongo.sh up && ../kong-pongo/pongo.sh build && ../kong-pongo/pongo.sh run
+

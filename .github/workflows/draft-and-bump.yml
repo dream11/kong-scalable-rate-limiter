@@ -1,0 +1,60 @@
+# This workflow broadly does 3 tasks-
+# (1) Create/Update Release drafts
+# (2) Auto Label PR's
+# (3) Bump Version
+
+# The update_release_draft job handles the first two tasks, on the basis of event which triggered workflow.
+# (1) if push to master by merging PR.
+# (2) if pull request opened, reopended, or synchronized (commit push)
+
+# The bump-version job handles the third task. It bumps the version of the rockspec if
+# - PR is merged to master with label - "publish"
+
+name: Draft and Bump
+
+on:
+  push:
+    branches:
+      - master
+  # pull_request event is required only for autolabeler
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  update-release-draft:
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag-name: ${{ steps.release-drafter.outputs.tag_name }}
+
+    steps:
+      - id: release-drafter
+        uses: release-drafter/release-drafter@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  bump-version:
+    runs-on: ubuntu-latest
+
+    needs: [update-release-draft]
+
+    steps:
+    - name: Check Publish label
+      id: check-publish-label
+      # If target branch is "master", only then run this step
+      if: ${{ github.ref == 'refs/heads/master' }}
+      uses: shioyang/check-pr-labels-on-push-action@v1.0.3
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        labels: '["publish"]'
+
+    - name: Checkout repo
+      # If target branch is "master" and PR has label "publish", only then run this step
+      if: ${{ steps.check-publish-label.outputs.result == 'true' && github.ref == 'refs/heads/master' }}
+      uses: actions/checkout@v2
+      with:
+        token: ${{ secrets.COMMIT_ACCESS_TOKEN }}
+
+    - name: Bump Version
+      if: ${{ steps.check-publish-label.outputs.result == 'true' && github.ref == 'refs/heads/master' }}
+      run: .ci/scripts/bump-rockspec.sh ${{ needs.update-release-draft.outputs.tag-name }}

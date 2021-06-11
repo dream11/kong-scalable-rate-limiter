@@ -1,0 +1,18 @@
+# This workflow publishes the module to Luarocks and is triggered when a Draft release is published.
+
+name: Publish Release
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  upload_to_luarocks:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - run: .ci/scripts/install-deps.sh
+    - run: .ci/scripts/upload.sh ${{ secrets.LUAROCKS_KEY }}
