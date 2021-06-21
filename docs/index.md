@@ -1,153 +1,92 @@
-[![Continuous Integration](https://github.com/dream11/kong-circuit-breaker/actions/workflows/ci.yml/badge.svg)](https://github.com/dream11/kong-circuit-breaker/actions/workflows/ci.yml)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+# Scalable Rate Limiter
 
 ## Overview
-`kong-circuit-breaker` is a Kong plugin that provides circuit-breaker functionality at the route level. It uses [lua-circuit-breaker](https://github.com/dream11/lua-circuit-breaker) library internally to wrap proxy calls around a circuit-breaker pattern. The functionality provided by this plugin is similar to libraries like [resilience4j](https://github.com/resilience4j/resilience4j) in Java.
 
-## Usecase
-In high throughput use cases, if an API of an upstream service results in timeouts/failures, the following will happen:
-1. It will bring a cascading failure effect to Kong and reduce its performance
-2. Continued calls to upstream service (which is facing downtime) will prevent the upstream service from recovering
-Thus, it is essential for proxy calls made from Kong to fail fast using an intelligent configurable mechanism, leading to improved resiliency and fault tolerance.
+**Scalable-rate-limiter** is a plugin for [Kong](https://github.com/Mashape/kong) built on top of [Rate-limiting](https://docs.konghq.com/hub/kong-inc/rate-limiting/) plugin. It adds **batch-updates** of rate-limiting counters and also adds support for **clustered redis**.
 
-## Behaviour
-The circuit breaker works like an electric circuit breaker only as it has three states:
-1. Open: The CB will not allow any requests to this route, and it will fail fast.
-2. Half-open: The CB will allow few requests to this route based on the configuration to check if it fails or passes.
-3. Closed: All requests will work as usual.
+## Issues in the bundled Rate Limiting plugin
 
+The `Rate Limiting` plugin bundled with `Kong` works fine upto a certain throughput, after which cassandra and redis policy become hard to scale. This is mainly due to the following problems:
+
+**Problem 1**: At high throughputs, updating the rate-limiting counters on each request can increase the load on the database causing [Hot-Key](https://partners-intl.aliyun.com/help/doc-detail/67252.htm) problem.  
+**Solution**: We created a new policy batch-redis which maintains a counter in local memory and updates the rate-limiting counters in DB in a batch. Hot keys are not an issue anymore as the number of requests to Redis go down by a factor of batch size.
+
+**Problem 2**: When rate-limiting counters data grows, we cannot shard them with a redis-cluster since the plugin did not have support for redis-cluster.  
+**Solution**: The [lua-resty-redis](https://github.com/openresty/lua-resty-redis) client does not support clustered-redis so we replaced it with [resty-redis-cluster](https://github.com/steve0511/resty-redis-cluster). We faced some issues during stress tests when one of the Redis shard in a cluster went down. To make it more fault tolerant, we made some tweaks to [resty-redis-cluster](https://github.com/steve0511/resty-redis-cluster) library and added the modified version to our plugin's code.
+
+## Changes made
+
+Major changes made to the plugin code:  
+
+1. Added batch-redis policy
+2. Added support for redis cluster
+3. Made plugin fault tolerant by default i.e. requests will continue to be served if there is some problem with code or redis
+4. Removed local, cluster (cassandra/postgres) policies
 
 ## How does it work?
-Internally, the plugin uses [lua-circuit-breaker](https://github.com/dream11/lua-circuit-breaker) library to wrap proxy calls made by Kong with a circuit-breaker.
-1. To decide whether a route is in a healthy/unhealthy state, success % and failure % are calculated in a time window of `window_time` seconds.
-2. For any calculation to happen in step 1, the total number of requests in the time window should >= `min_calls_in_window`.
-3. If failure % calculated crosses `failure_percent_threshold` circuit is opened. This prevents any more calls to this route until `wait_duration_in_open_state seconds` have elapsed. After this, the circuit transitions to the half-open state automatically
-4. In the half-open state, when `total_requests` >= `half_open_min_calls_in_window`, failure % is calculated to resolve circuit-breaker into the open or the closed state.
-5. If the circuit-breaker cannot resolve the state in the `wait_duration_in_half_open_state` seconds, it automatically transitions into the closed state.
 
+The plugin uses fixed time windows to maintain rate-limiting counters (similar to the bundled Rate Limiting plugin)
+
+### redis policy
+
+The rate limiting counters are updated on each request. Recommended for low throughput API's.
+
+### batch-redis policy
+
+Instead of updating the global counter in redis after each request, the request counts are maintained at a (local) node level in the shared cache (amongst nginx workers) which is synchronized with the (global) redis counter whenever a batch is complete.
+Consider this scenario:
+
+    batch-size = 500, and throughput = 1 million RPM
+
+Each nginx worker updates the local shared cache after serving a request. Once the local_counter % 500 == 0 , the global redis counter is incremented (by batch size). This global count which is a representative of total number of requests is then used to update the local cache as well. And this process is repeated until the API limit is reached or the time period expires.  
+Batching reduces the effective writes made on global redis counter by a factor of `batch_size`. It therefore makes the rate limiting scalable and faster as network calls are avoided on each request.
 
 ## Installation
 
-### [luarocks](https://luarocks.org/modules/dream11/kong-circuit-breaker)
-```bash
-luarocks install kong-circuit-breaker
-```
+If you're using `luarocks` execute the following:
 
-### source
-Clone this repo and run:
-```
-luarocks make
-```
+    luarocks install scalable-rate-limiter
 
-## Usage
-```lua
-conf = {
-    version = 0,
-    window_time = 15,
-    min_calls_in_window = 20,
-    api_call_timeout_ms = 500,
-    failure_percent_threshold = 51,
-    wait_duration_in_open_state = 15,
-    wait_duration_in_half_open_state = 180,
-    error_status_code = 599
-}
-```
-You can add this plugin on a global / service / route level in Kong API Gateway.
+You will also need to enable this plugin by adding it to the list of enabled plugins using `KONG_PLUGINS` environment variable or the `plugins` key in `kong.conf`
 
-* Lets say you add this plugin at a global-level with conf, this will create a CB object for each route.
-* If you want to exclude some routes from being wrapped with CB then use `conf.excluded_apis`.
-* If you want to override the configuration of global-level CB for a route (say ```GET /test```), then enable this plugin for ```GET /test``` route also with a different conf.
+    export KONG_PLUGINS=scalable-rate-limiter
 
+OR
+
+    plugins=scalable-rate-limiter
 
 ### Parameters
 
-| Key | Default  | Type  | Required | Description |
+| Parameter | Type | Default  | Required | description |
 | --- | --- | --- | --- | --- |
-| version | 0 | number | true | Version of plugin's configuration |
-| window_time | 10 | number | true | Window size in seconds |
-| api_call_timeout_ms |  2000 | number | true | Duration to wait before request is timed out and counted as failure |
-| min_calls_in_window | 20 | number | true | Minimum number of calls to be present in the window to start calculation |
-| failure_percent_threshold | 51 | number | true | % of requests that should fail to open the circuit |
-| wait_duration_in_open_state | 15 | number | true | Duration(sec) to wait before automatically transitioning from open to half-open state |
-| wait_duration_in_half_open_state | 120 | number | true | Duration(sec) to wait in half-open state before automatically transitioning to closed state |
-| half_open_min_calls_in_window | 5 | number | true | Minimum number of calls to be present in the half open state to start calculation |
-| half_open_max_calls_in_window | 10 | number | true | Maximum calls to allow in half open state |
-| error_status_code | 599 | number | false | Override response status code in case of error (circuit-breaker blocks the request) |
-| error_msg_override | nil | string | false | Override with custom message in case of error |
-| response_header_override | nil | string | false | Override "Content-Type" response header in case of error |
-| excluded_apis | "{\"GET_/kong-healthcheck\": true}" | string | true | Stringified json to prevent running circuit-breaker on these APIs |
-| set_logger_metrics_in_ctx | true | boolean | false | Set circuit-breaker events in kong.ctx.shared to be consumed by other plugins like logger |
+| second | integer |  | false | Maximum number of requests allowed in 1 second |
+| minute | integer | | false | Maximum number of requests allowed in 1 minute |
+| hour | integer | | false | Maximum number of requests allowed in 1 hour |
+| day | integer | | false | Maximum number of requests allowed in 1 day |
+| limit_by | string | service | true | Property to limit the requests on (service / header) |
+| header_name | string | | true (limit_by: header) | The header name by which to limit the requests if limit_by is selected as header |
+| policy | string | redis | true | Update redis at each request (redis) or in batches (batch-redis)  |
+| batch_size | integer | 10 | true (when policy: batch-redis) | Redis counters will be updated in batches of this size  |
+| redis_host | string |  | true | Redis host |
+| redis_port | integer | 6379 | true | Redis port |
+| redis_password | string | | false | Redis password |
+| redis_connect_timeout(ms) | integer | 200 | true | Redis connect timeout |
+| redis_send_timeout(ms) | integer | 100 | true | Redis send timeout |
+| redis_read_timeout(ms) | integer | 100 | true | Redis read timeout |
+| redis_max_connection_attempts | integer | 2 | true | Total attempts to connect to a Redis node |
+| redis_keepalive_timeout(ms) | integer | 60000 | true | Keepalive timeout for Redis connections |
+| redis_max_redirection | integer | 2 | true | Number of times a keys is tried when MOVED or ASK response is received from redis server |
+| redis_pool_size | integer | 4 | true | Pool size of redis connection pool |
+| redis_backlog | integer | 1 | true | Size of redis connection pool backlog  queue|
+| error_message | string | API rate limit exceeded | true | Error message sent when rate limit is exhausted |
 
 ## Caveats
 
-1. Circuit breaker uses time window to count failures, successes, and total_requests. These windows are not sliding, i.e., if you create a window of 10 seconds, it will create windows like:
-```
-    window_1 (  0s - 10s ),
-    window_2 ( 10s - 20s ),
-    window_3 ( 20s - 30s ) ...
-```
-2. Circuit-breaker object is created for each route in each nginx worker. The state of CB object (like counters) is never shared among workers. While setting the configuration, carefully set parameters like `min_calls_in_window` taking total nginx workers into account.
-3. Circuit breaker uses failure % to figure out if a route is healthy or not. Always set `min_calls_in_window` to start calculations; else, you may open the circuit when total_requests are relatively low.
-4. Set `half_open_max_calls_in_window` to prevent allowing too many requests to the route in the half-open state.
-5. `set_logger_metrics_in_ctx` sets circuit_breaker_name, upstream_service_host and circuit_breaker_state in `kong.ctx.shared.logger_metrics.circuit_breaker`. You can later use this data within context of a request to log these events.
-6. `version` helps in recreating a new circuit-breaker object for a route if `conf_new.version > conf_old.version`, so whenever you change the plugin configuration, increment the version for changes to take effect.
+1. Batching introduces an error of upto `batch_size * number of instances` since the local count is used to check if request should be allowed or not and it can be outdated (in the worst case) by `batch_size * (number of kong instances)` giving the above error margin.  
+This can be mitigated by reducing the batch size to the smallest possible value (which the database can support). In our tests we found this error margin to be too minuscule (<0.5%). This error margin can also be accounted for while deciding the rate limit (if rate limit is 100, set it to 99 accounting for upto 1% error).
+2. This plugin only works with a [redis cluster](https://redis.io/topics/cluster-tutorial).
 
-## Inspired by
-- [lua-circuit-breaker](https://github.com/dream11/lua-circuit-breaker)
-- [resilience4j](https://github.com/resilience4j/resilience4j)
+## Roadmap
 
-# scalable-rate-limiter
-
-- [scalable-rate-limiter](#scalable-rate-limiter)
-    - [Overview](#overview-1)
-    - [Internal Working](#internal-working)
-    - [Installation](#installation-1)
-    - [Configuration](#configuration)
-    - [Development](#development)
-
-## Overview
-
-scalable-rate-limiter is a custom plugin for d11-kong API gateway built on top of rate-limiting kong plugin.\
-Follow this blog for details: https://docs.konghq.com/hub/kong-inc/rate-limiting/
-
-1. for high throughput apis (more than 20k rpm) use batch-cluster (cassandra) policy and keep batch size = 500
-2. for low throughput apis use cluster policy, batch size = 1 (default and always)
-
-
-## Internal Working
-Issue in kong rate-limiting plugin:
-For low throughput it works well with cluster (cassandra) policy.\
-When throughput is above 50k RPM, you will face hotkey issue. Data will be inconsistent and rate-limiting plugin performance will degrade.\
-To address this problem, we have tweaked the existing code and introduced a new policy - batch-cluster.
-
-Working of batch-cluster mode:\
-It uses local cache as a primary data store and sync with cluster (cassandra) data store in batches.\
-for eg: batch-size = 500, and throughput = 1 million RPM\
-It will update the local cache after every single api hit and pushes the api count to cassandra after every 500th api hit.\
-At the same time, it will sync the cassandra rate limit metric to a local cache.\
-So according to this we will be hitting cassandra writer (1000000/500) = 2000 times in a minutes.
-
-
-## Installation
-
-`For development env`: You need to load this plugin when starting kong in local machine using gojira. Then you can add this plugin to routes using Konga dashboard or using Kong's Admin APIs.
-```
-KONG_PLUGINS=bundled,scalable-rate-limiter gojira up --cassandra --volume /Users/santosh.nain/work/backend/d11-kong/plugins/:/kong-plugin/kong/plugins/ --port 0.0.0.0:8000:8000/tcp --port 0.0.0.0:8001:8001/tcp
-```
-
-`For production env`: Plugin will already be loaded for use in routes. Just add it to your route, configure it the right way and you are good to go.
-
-
-## Configuration
-
-1. `batch-cluster`: select this policy when you want to use the combination of local cache and cluster.
-2. `batch-size`: default=10, works only when batch-cluster policy is selected.
-3. `cluster`: select this policy when you want to save your rate limit metrics on cassandra db.
-4. `redis`: select this policy when you want to save your rate limit metrics on redis db.
-5. `local`: select this policy when you want to save your rate limit metrics on local cache.
-
-
-## Development
-
-scalable-rate-limiter is currently in development. The latest released version is 1.0.0\
-Load Test results: https://dream11.atlassian.net/wiki/spaces/TECH/pages/1209008229/Kong+Rate-limiting+plugin+load+test
+1. Add support for sliding windows.
+2. Add support for custom window size (eg. 2hrs, 3hrs, 10 minutes, 3 days)
