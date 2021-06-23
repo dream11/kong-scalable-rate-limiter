@@ -37,5 +37,6 @@ jobs:
       - name: Build pongo and run tests
         run: |
           git clone https://github.com/Kong/kong-pongo.git ../kong-pongo
+          cp -r .pongo/redis ../kong-pongo/assets/redis
           ../kong-pongo/pongo.sh clean && ../kong-pongo/pongo.sh up && ../kong-pongo/pongo.sh build && ../kong-pongo/pongo.sh run
 

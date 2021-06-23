@@ -1,0 +1,52 @@
+version: '3.5'
+
+networks:
+  pongo-test-network:
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+
+services:
+  redis-cluster:
+    image: redis:latest
+    command: redis-cli -p 7101 --cluster create 172.18.55.1:7101 172.18.55.2:7102 172.18.55.3:7103 --cluster-yes
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    networks:
+      pongo-test-network:
+        ipv4_address: 172.18.55.7
+
+  redis-1:
+    build: ./redis
+    image: redis-cluster-node
+    environment:
+      X_REDIS_PORT: 7101
+    networks:
+      pongo-test-network:
+        ipv4_address: 172.18.55.1
+    ports:
+      - 7101:7101
+
+  redis-2:
+    build: ./redis
+    image: redis-cluster-node
+    environment:
+      X_REDIS_PORT: 7102
+    networks:
+      pongo-test-network:
+        ipv4_address: 172.18.55.2
+    ports:
+      - 7102:7102
+
+  redis-3:
+    build: ./redis
+    image: redis-cluster-node
+    environment:
+      X_REDIS_PORT: 7103
+    networks:
+      pongo-test-network:
+        ipv4_address: 172.18.55.3
+    ports:
+      - 7103:7103
