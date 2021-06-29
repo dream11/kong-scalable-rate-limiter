@@ -109,49 +109,49 @@ return {
                     },
                     {
                         redis_connect_timeout = typedefs.timeout {
-                            default = 5,
+                            default = 200,
                         },
                     },
                     {
                         redis_send_timeout = typedefs.timeout {
-                            default = 2,
+                            default = 100,
                         },
                     },
                     {
                         redis_read_timeout = typedefs.timeout {
-                            default = 2,
+                            default = 100,
                         },
                     },
                     {
                         redis_keepalive_timeout = typedefs.timeout {
-                            default = 30000,
+                            default = 60000,
                         },
                     },
                     {
                         redis_max_connection_attempts = {
                             type = "integer",
                             gt = 0,
-                            default = 1,
+                            default = 2,
                         },
                     },
                     {
                         redis_max_redirection = {
                             type = "integer",
                             gt = 0,
-                            default = 1,
+                            default = 2,
                         },
                     },
                     {
                         redis_pool_size = {
                             type = "integer",
                             gt = 0,
-                            default = 1,
+                            default = 4,
                         },
                     },
                     {
                         redis_backlog = {
                             type = "integer",
-                            default = 0,
+                            default = 1,
                         },
                     },
                 },

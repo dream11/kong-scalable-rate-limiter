@@ -13,19 +13,19 @@ local function get_redis_config(source_config)
     return {
         name = "d11-redis-cluster",
         serv_list = {
-            { ip = source_config.redis_host, port = source_config.redis_port or 6379 }
+            { ip = source_config.redis_host, port = source_config.redis_port}
         },
-        keepalive_timeout = source_config.redis_keepalive_timeout or 60000,
-        keepalive_cons = source_config.redis_pool_size or 5,
-        connect_timeout = source_config.redis_connect_timeout or 10000,
-        send_timeout = source_config.redis_send_timeout or 10000,
-        read_timeout = source_config.redis_read_timeout or 10000,
-        max_redirection = source_config.redis_max_redirection or 2,
-        max_connection_attempts = source_config.redis_max_connection_attempts or 2,
+        keepalive_timeout = source_config.redis_keepalive_timeout,
+        keepalive_cons = source_config.redis_pool_size,
+        connect_timeout = source_config.redis_connect_timeout,
+        send_timeout = source_config.redis_send_timeout,
+        read_timeout = source_config.redis_read_timeout,
+        max_redirection = source_config.redis_max_redirection,
+        max_connection_attempts = source_config.redis_max_connection_attempts,
         dict_name = "kong_db_cache",
         connect_opts = {
-            pool_size = source_config.redis_pool_size or 5,
-            backlog = source_config.redis_backlog or 5
+            pool_size = source_config.redis_pool_size,
+            backlog = source_config.redis_backlog
         }
     }
 end
