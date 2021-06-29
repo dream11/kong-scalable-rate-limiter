@@ -1,0 +1,27 @@
+# This workflow broadly does the below tasks-
+# (1) Checks if target branch of PR is rebased with default branch
+
+name: Check if target branch is rebased
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [master]
+jobs:
+  is_branch_rebased:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Branch point Commit ID
+        id: s1
+        run: echo "::set-output name=c_id::$(diff -u <(git rev-list --first-parent origin/${{ github.head_ref }}) <(git rev-list --first-parent origin/${{ github.base_ref }}) | sed -ne 's/^ //p' | head -1)"
+      - run: echo ${{ steps.s1.outputs.c_id }}
+      - name: Base Branch Head Commit ID
+        id: s2
+        run: echo "::set-output name=c_id::$(git rev-parse origin/${{ github.base_ref }})"
+      - run: echo ${{ steps.s2.outputs.c_id }}
+      - if: ${{ steps.s1.outputs.c_id != steps.s2.outputs.c_id }}
+        run: exit 1
+      - if: ${{ steps.s1.outputs.c_id == steps.s2.outputs.c_id }}
+        run: echo "Branch is rebased"
