@@ -1,8 +1,11 @@
+[![Continuous Integration](https://github.com/dream11/kong-scalable-rate-limiter/actions/workflows/ci.yml/badge.svg)](https://github.com/dream11/kong-circuit-breaker/actions/workflows/ci.yml)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
 # Scalable Rate Limiter
 
 ## Overview
 
-**Scalable-rate-limiter** is a plugin for [Kong](https://github.com/Mashape/kong) built on top of [Rate-limiting](https://docs.konghq.com/hub/kong-inc/rate-limiting/) plugin. It adds **batch-updates** of rate-limiting counters and also adds support for **clustered redis**.
+Scalable-rate-limiter is a plugin for [Kong](https://github.com/Mashape/kong) built on top of [Rate-limiting](https://docs.konghq.com/hub/kong-inc/rate-limiting/) plugin. It adds batch updates of rate-limiting counters and also adds support for clustered redis.
 
 ## Issues in the bundled Rate Limiting plugin
 
@@ -82,7 +85,7 @@ OR
 
 ## Caveats
 
-1. Batching introduces an error of upto `batch_size * number of instances` since the local count is used to check if request should be allowed or not and it can be outdated (in the worst case) by `batch_size * (number of kong instances)` giving the above error margin.  
+1. Batching introduces an error of upto `batch_size * (number of kong instances)` since the local count is used to check if request should be allowed or not and it can be outdated (in the worst case) by `batch_size * (number of kong instances)` giving the above error margin.  
 This can be mitigated by reducing the batch size to the smallest possible value (which the database can support). In our tests we found this error margin to be too minuscule (<0.5%). This error margin can also be accounted for while deciding the rate limit (if rate limit is 100, set it to 99 accounting for upto 1% error).
 2. This plugin only works with a [redis cluster](https://redis.io/topics/cluster-tutorial).
 

@@ -1,8 +1,11 @@
+[![Continuous Integration](https://github.com/dream11/kong-scalable-rate-limiter/actions/workflows/ci.yml/badge.svg)](https://github.com/dream11/kong-circuit-breaker/actions/workflows/ci.yml)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
 # Scalable Rate Limiter
 
 ## Overview
 
-**Scalable-rate-limiter** is a plugin for [Kong](https://github.com/Mashape/kong) built on top of [Rate-limiting](https://docs.konghq.com/hub/kong-inc/rate-limiting/) plugin. It adds **batch-updates** of rate-limiting counters and also adds support for **clustered redis**.
+Scalable-rate-limiter is a plugin for [Kong](https://github.com/Mashape/kong) built on top of [Rate-limiting](https://docs.konghq.com/hub/kong-inc/rate-limiting/) plugin. It adds batch updates of rate-limiting counters and also adds support for clustered redis.
 
 ## Issues in the bundled Rate Limiting plugin
 
