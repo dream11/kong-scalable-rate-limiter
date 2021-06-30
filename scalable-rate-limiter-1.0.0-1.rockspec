@@ -5,7 +5,8 @@ version = "1.0.0-1"
 supported_platforms = {"linux", "macosx"}
 
 source = {
-    url = "https://github.com/dream11/kong-scalable-rate-limiter"
+    url = "git://github.com/dream11/kong-scalable-rate-limiter",
+    tag = "v1.0.0"
 }
 
 description = {
