@@ -11,8 +11,9 @@ local EMPTY = {}
 
 local RateLimitingHandler = {}
 
-RateLimitingHandler.PRIORITY = 960
 RateLimitingHandler.VERSION = "2.2.0"
+RateLimitingHandler.PRIORITY = tonumber(os.getenv("PRIORITY_SCALABLE_RATE_LIMITER")) or 960
+kong.log.info("Plugin priority set to " .. RateLimitingHandler.PRIORITY .. (os.getenv("PRIORITY_SCALABLE_RATE_LIMITER") and " from env" or " by default"))
 
 local function get_identifier(conf)
     local identifier
