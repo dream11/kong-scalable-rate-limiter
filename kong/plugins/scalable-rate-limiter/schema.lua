@@ -103,6 +103,11 @@ return {
                         },
                     },
                     {
+                        redis_password = typedefs.password {
+                            required = false
+                        },
+                    },
+                    {
                         redis_port = typedefs.port {
                             default = 6379,
                         },
