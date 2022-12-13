@@ -26,7 +26,8 @@ local function get_redis_config(source_config)
         connect_opts = {
             pool_size = source_config.redis_pool_size,
             backlog = source_config.redis_backlog
-        }
+        },
+        auth = source_config.redis_password
     }
 end
 
