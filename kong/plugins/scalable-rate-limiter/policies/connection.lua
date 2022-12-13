@@ -4,7 +4,7 @@ local resty_lock = require "resty.lock"
 local worker = ngx.worker
 local inspect = require "inspect"
 local dns_client = require "kong.resty.dns.client"
-local ip   = require "resty.mediador.ip"
+local ipmatcher = require "resty.ipmatcher"
 local _M = {}
 
 local data = {
@@ -13,7 +13,7 @@ local data = {
 
 local function get_redis_config(source_config)
     -- If not ipv4 and not ipv6 adress then we need to resolve hostname to ip
-    if not ip.isv4(source_config.redis_host) and not ip.isv6(source_config.redis_host) then
+    if not ipmatcher.parse_ipv4(source_config.redis_host) and not ipmatcher.parse_ipv6(source_config.redis_host) then
       dns_client = require("kong.tools.dns")(kong.configuration)  -- configure DNS client
       source_config.redis_host = dns_client.toip(source_config.redis_host)
     end
