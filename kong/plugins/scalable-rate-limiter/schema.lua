@@ -103,8 +103,9 @@ return {
                         },
                     },
                     {
-                        redis_password = typedefs.password {
-                            required = false
+                        redis_password = { 
+                              type = "string",
+                              required = false
                         },
                     },
                     {
