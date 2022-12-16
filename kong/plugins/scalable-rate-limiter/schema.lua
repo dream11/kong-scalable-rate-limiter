@@ -1,5 +1,6 @@
 local typedefs = require "kong.db.schema.typedefs"
-local ORDERED_PERIODS = {"second", "minute", "hour", "day"}
+local ORDERED_PERIODS = { "second", "minute", "hour", "day" }
+local cjson = require "cjson"
 
 local function validate_periods_order(config)
     for i, lower_period in ipairs(ORDERED_PERIODS) do
@@ -24,10 +25,14 @@ local function validate_periods_order(config)
     return true
 end
 
+local function validate_limits_per_consumer_config(config)
+    return pcall(cjson.decode, config)
+end
+
 return {
     name = "scalable-rate-limiter",
     fields = {
-        {protocols = typedefs.protocols_http},
+        { protocols = typedefs.protocols_http },
         {
             config = {
                 type = "record",
@@ -60,7 +65,7 @@ return {
                         limit_by = {
                             type = "string",
                             default = "service",
-                            one_of = {"service", "header"},
+                            one_of = { "service", "header", "consumer" },
                         },
                     },
                     {
@@ -91,15 +96,15 @@ return {
                             len_min = 0,
                         },
                     },
-                    -- {
-                    --     use_app_config = {
-                    --         type = "boolean",
-                    --         default = false,
-                    --     },
-                    -- },
                     {
                         redis_host = typedefs.host {
                             required = true
+                        },
+                    },
+                    {
+                        redis_password = {
+                            type = "string",
+                            required = false
                         },
                     },
                     {
@@ -154,43 +159,60 @@ return {
                             default = 1,
                         },
                     },
+                    {
+                        hide_client_headers = {
+                            type = "boolean",
+                            required = true,
+                            default = false,
+                        },
+                    },
+                    {
+                        limit_by_consumer_config = {
+                            type = "string",
+                            required = false,
+                            custom_validator = validate_limits_per_consumer_config
+                        }
+                    },
                 },
                 custom_validator = validate_periods_order,
             },
         },
     },
     entity_checks = {
-        {
-            at_least_one_of = {
+        { conditional_at_least_one_of = {
+            if_field = "config.limit_by",
+            if_match = { one_of = { "service", "header" } },
+            then_at_least_one_of = {
                 "config.second",
                 "config.minute",
                 "config.hour",
                 "config.day",
             },
-        },
+            then_err = "must set one of %s when 'limit_by' is 'service' or 'header'",
+        } },
         {
             conditional = {
                 if_field = "config.policy",
-                if_match = {eq = "batch-redis"},
+                if_match = { eq = "batch-redis" },
                 then_field = "config.batch_size",
-                then_match = {required = true},
+                then_match = { required = true },
             },
         },
         {
             conditional = {
                 if_field = "config.limit_by",
-                if_match = {eq = "header"},
+                if_match = { one_of = { "consumer", "header" } },
                 then_field = "config.header_name",
-                then_match = {required = true},
+                then_match = { required = true },
             },
         },
-        -- {
-        --     conditional = {
-        --         if_field = "config.use_app_config",
-        --         if_match = {eq = false},
-        --         then_field = "config.redis_host",
-        --         then_match = {required = true},
-        --     },
-        -- },
+        {
+            conditional = {
+                if_field = "config.limit_by",
+                if_match = { eq = "consumer" },
+                then_field = "config.limit_by_consumer_config",
+                then_match = { required = true },
+            },
+        },
     },
 }
