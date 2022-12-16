@@ -1,5 +1,5 @@
-local helpers        = require "spec.helpers"
-local cjson          = require "cjson"
+local helpers = require "spec.helpers"
+local cjson   = require "cjson"
 
 -- REDIS_HOST and REDIS_PORT taken from .pongo/redis-cluster.yml
 local REDIS_HOST     = "172.18.55.1"
@@ -22,18 +22,17 @@ local proxy_client = helpers.proxy_client
 local function it_with_retry(desc, test)
     return it(desc, function(...)
         if not pcall(test, ...) then
-        ngx.sleep(61 - (ngx.now() % 60))  -- Wait for minute to expire
-        test(...)
+            ngx.sleep(61 - (ngx.now() % 60)) -- Wait for minute to expire
+            test(...)
         end
     end)
 end
 
-
 local function GET(url, opts, res_status)
     ngx.sleep(0.010)
 
-    local client = proxy_client()
-    local res, err  = client:get(url, opts)
+    local client   = proxy_client()
+    local res, err = client:get(url, opts)
     if not res then
         client:close()
         return nil, err
@@ -50,7 +49,7 @@ local function GET(url, opts, res_status)
 end
 
 for _, strategy in helpers.each_strategy() do
-    for _, policy in ipairs({ "redis", "batch-redis"}) do
+    for _, policy in ipairs({ "redis", "batch-redis" }) do
         describe(fmt("Plugin: rate-limiting (access) with policy: %s [#%s]", policy, strategy), function()
             local bp
             local db
@@ -68,22 +67,32 @@ for _, strategy in helpers.each_strategy() do
             local empty_headers = {}
 
             local limit_by_service_config = {
-                policy         = policy,
-                minute         = per_minute_limit,
-                redis_host     = REDIS_HOST,
-                redis_port     = REDIS_PORT,
-                limit_by       = "service",
-                batch_size     = 2,
+                policy     = policy,
+                minute     = per_minute_limit,
+                redis_host = REDIS_HOST,
+                redis_port = REDIS_PORT,
+                limit_by   = "service",
+                batch_size = 2,
             }
 
             local limit_by_header_config = {
-                policy         = policy,
-                minute         = per_minute_limit,
-                redis_host     = REDIS_HOST,
-                redis_port     = REDIS_PORT,
-                limit_by       = "header",
-                header_name    = limit_by_header,
-                batch_size     = 2,
+                policy      = policy,
+                minute      = per_minute_limit,
+                redis_host  = REDIS_HOST,
+                redis_port  = REDIS_PORT,
+                limit_by    = "header",
+                header_name = limit_by_header,
+                batch_size  = 2,
+            }
+
+            local limit_by_consumer_config = {
+                policy                   = policy,
+                redis_host               = REDIS_HOST,
+                redis_port               = REDIS_PORT,
+                limit_by                 = "consumer",
+                header_name              = limit_by_header,
+                limit_by_consumer_config = "{\"key1\": {\"minute\": 6 }}",
+                batch_size               = 2,
             }
 
             describe("global level plugin limit by service", function()
@@ -930,6 +939,75 @@ for _, strategy in helpers.each_strategy() do
                     for i = 1, per_minute_limit do
                         local res = GET("/service_3_route_2", nil, 200)
                     end
+                end)
+            end)
+            describe("route level plugin limit by consumer", function()
+                lazy_setup(function()
+                    helpers.kill_all()
+
+                    bp, db = helpers.get_db_utils(strategy, nil, { "scalable-rate-limiter" })
+
+                    -- Add request termination plugin at global level to return 200 response for all api calls
+                    bp.plugins:insert {
+                        name = "request-termination",
+                        config = {
+                            status_code = 200,
+                        },
+                    }
+
+                    local service_1 = bp.services:insert {
+                        protocol = "http",
+                        host = mock_host,
+                        port = mock_port,
+                        name = "service_1",
+                    }
+
+                    local service_1_route_1 = bp.routes:insert {
+                        methods = { "GET" },
+                        protocols = { "http" },
+                        paths = { "/service_1_route_1" },
+                        strip_path = false,
+                        preserve_host = true,
+                        service = service_1,
+                    }
+                    -- service_1_route_1 Rate limiting plugin limit by consumer
+                    bp.plugins:insert {
+                        name = "scalable-rate-limiter",
+                        route = service_1_route_1,
+                        config = limit_by_consumer_config,
+                    }
+
+                    assert(helpers.start_kong({
+                        database   = strategy,
+                        nginx_conf = "spec/fixtures/custom_nginx.template",
+                        plugins    = "bundled,scalable-rate-limiter",
+                    }))
+                end)
+
+                lazy_teardown(function()
+                    helpers.stop_kong()
+                    assert(db:truncate())
+                end)
+
+                it_with_retry("blocks requests over limit on route for key1 consumer", function()
+                    for i = 1, per_minute_limit do
+                        local res = GET("/service_1_route_1", { headers = { ["X-Consumer-Username"] = "key1", } }, 200)
+                    end
+
+                    local res = GET("/service_1_route_1", { headers = { ["X-Consumer-Username"] = "key1", } }, 429)
+
+                    -- validate client rate limting headers are present
+                    assert.same(tostring(per_minute_limit), res.headers['x-ratelimit-limit-minute'])
+                end)
+                it_with_retry("does not blocks requests on route for key2 consumer as rate limiting not enforced on it", function()
+                    for i = 1, per_minute_limit do
+                        local res = GET("/service_1_route_1", { headers = { ["X-Consumer-Username"] = "key2", } }, 200)
+                    end
+
+                    local res = GET("/service_1_route_1", { headers = { ["X-Consumer-Username"] = "key2", } }, 200)
+
+                    -- validate client rate limting headers absence
+                    assert.is_nil(res.headers['x-ratelimit-limit-minute'])
                 end)
             end)
         end)
