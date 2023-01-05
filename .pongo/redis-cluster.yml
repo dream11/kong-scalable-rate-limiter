@@ -9,6 +9,7 @@ networks:
 services:
   redis-cluster:
     image: redis:latest
+    hostname: pongo-test-network
     command: redis-cli -p 7101 --cluster create 172.18.55.1:7101 172.18.55.2:7102 172.18.55.3:7103 --cluster-yes
     depends_on:
       - redis-1
