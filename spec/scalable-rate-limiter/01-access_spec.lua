@@ -3,6 +3,7 @@ local cjson          = require "cjson"
 
 -- REDIS_HOST and REDIS_PORT taken from .pongo/redis-cluster.yml
 local REDIS_HOST     = "172.18.55.1"
+local REDIS_HOSTNAME = "pongo-test-network"
 local REDIS_PORT     = 7101
 local REDIS_PASSWORD = ""
 local REDIS_DATABASE = 1
@@ -75,6 +76,15 @@ for _, strategy in helpers.each_strategy() do
                 limit_by       = "service",
                 batch_size     = 2,
             }
+                
+            local limit_by_service_config_hostname = {
+                policy         = policy,
+                minute         = per_minute_limit,
+                redis_host     = REDIS_HOSTNAME,
+                redis_port     = REDIS_PORT,
+                limit_by       = "service",
+                batch_size     = 2,
+            }
 
             local limit_by_header_config = {
                 policy         = policy,
@@ -104,6 +114,127 @@ for _, strategy in helpers.each_strategy() do
                     bp.plugins:insert {
                         name = "scalable-rate-limiter",
                         config = limit_by_service_config,
+                    }
+
+                    local service_1 = bp.services:insert {
+                        protocol = "http",
+                        host = mock_host,
+                        port = mock_port,
+                        name = "service_1",
+                    }
+
+                    bp.routes:insert {
+                        methods = {"GET"},
+                        protocols = {"http"},
+                        paths = {"/service_1_route_1"},
+                        strip_path = false,
+                        preserve_host = true,
+                        service = service_1,
+                    }
+
+                    local service_2 =  bp.services:insert {
+                        protocol = "http",
+                        host = mock_host,
+                        port = mock_port,
+                        name = "service_2",
+                    }
+
+                    bp.routes:insert {
+                        methods = {"GET"},
+                        protocols = {"http"},
+                        paths = {"/service_2_route_1"},
+                        strip_path = false,
+                        preserve_host = true,
+                        service = service_2,
+                    }
+
+                    local service_3 =  bp.services:insert {
+                        protocol = "http",
+                        host = mock_host,
+                        port = mock_port,
+                        name = "service_3",
+                    }
+
+                    bp.routes:insert {
+                        methods = {"GET"},
+                        protocols = {"http"},
+                        paths = {"/service_3_route_1"},
+                        strip_path = false,
+                        preserve_host = true,
+                        service = service_3,
+                    }
+
+                    bp.routes:insert {
+                        methods = {"GET"},
+                        protocols = {"http"},
+                        paths = {"/service_3_route_2"},
+                        strip_path = false,
+                        preserve_host = true,
+                        service = service_3,
+                    }
+
+                    assert(helpers.start_kong({
+                        database   = strategy,
+                        nginx_conf = "spec/fixtures/custom_nginx.template",
+                        plugins = "bundled,scalable-rate-limiter",
+                    }))
+                end)
+
+                lazy_teardown(function()
+                    helpers.stop_kong()
+                    assert(db:truncate())
+                end)
+
+                it_with_retry("blocks requests over limit on same service", function()
+                    for i = 1, per_minute_limit do
+                        local res = GET("/service_1_route_1", nil, 200)
+                    end
+
+                    local res = GET("/service_1_route_1", nil, 429)
+                end)
+
+                it_with_retry("blocks requests over limit on same service with multiple routes", function()
+                    for i = 1, per_minute_limit/2 do
+                        local res = GET("/service_3_route_1", nil, 200)
+                    end
+
+                    for i = 1, per_minute_limit/2 do
+                        local res = GET("/service_3_route_2", nil, 200)
+                    end
+
+                    local res = GET("/service_3_route_1", nil, 429)
+                    local res = GET("/service_3_route_2", nil, 429)
+                end)
+
+                it_with_retry("allows requests upto limit on each different service", function()
+                    for i = 1, per_minute_limit do
+                        local res = GET("/service_1_route_1", nil, 200)
+                    end
+
+                    for i = 1, per_minute_limit do
+                        local res = GET("/service_2_route_1", nil, 200)
+                    end
+                end)
+            end)
+                
+            describe("global level plugin limit by service using redis hostname", function()
+                lazy_setup(function()
+                    helpers.kill_all()
+
+                    bp, db = helpers.get_db_utils(strategy, nil, {"scalable-rate-limiter"})
+
+                    -- Add request termination plugin at global level to return 200 response for all api calls
+                    bp.plugins:insert {
+                        name = "request-termination",
+                        config = {
+                            status_code = 200,
+                        },
+                    }
+
+                    -- Global level Rate limiting plugin limit by service
+                    bp.plugins:insert {
+                        name = "scalable-rate-limiter",
+                        config = limit_by_service_config_hostname,
                     }
 
                     local service_1 = bp.services:insert {
