@@ -91,6 +91,29 @@ return {
                             len_min = 0,
                         },
                     },
+                    {
+                        error_code = {
+                            description = "Set a custom error code to return when the rate limit is exceeded.",
+                            type = "number",
+                            default = 429,
+                            gt = 0
+                        },
+                    },
+                    {
+                        fault_tolerant = {
+                            description = "A boolean value that determines if the requests should be proxied even if Kong has troubles connecting a redis. If `true`, requests will be proxied anyway, effectively disabling the rate-limiting function until the data store is working again. If `false`, then the clients will see `500` errors.",
+                            type = "boolean",
+                            required = true,
+                            default = true
+                        },
+                    },
+                    {
+                        audit_only = {
+                            description = "Run the rate-limiter in audit mode only. Enabling this will allow all rate-limited requests to pass through while logging for audit purpose",
+                            type = "boolean",
+                            default = false,
+                        },
+                    },
                     -- {
                     --     use_app_config = {
                     --         type = "boolean",
