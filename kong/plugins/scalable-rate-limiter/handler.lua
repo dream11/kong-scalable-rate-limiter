@@ -72,6 +72,7 @@ function RateLimitingHandler:access(conf)
 
     -- Consumer is identified by ip address or authenticated_credential id
     local identifier, err = get_identifier(conf)
+    local fault_tolerant = conf.fault_tolerant
 
     if err then
         kong.log.err(err)
@@ -88,13 +89,23 @@ function RateLimitingHandler:access(conf)
 
     local usage, stop, err = get_usage(conf, identifier, current_timestamp, limits)
     if err then
+        if not fault_tolerant then
+            return error(err)
+        end
         kong.log.err("failed to get usage: ", tostring(err))
     end
 
     -- If get_usage succeeded and limit has been crossed
     if usage and stop then
-        kong.log.err("API rate limit exceeded")
-        return kong.response.exit(429, { error = { message = conf.error_message }})
+        if conf.limit_by == "service" then
+            kong.log.err("API rate limit exceeded for " .. conf.limit_by .. ":" .. identifier)
+        elseif conf.limit_by == "header" then
+            kong.log.err("API rate limit exceeded for header " .. conf.header_name .. ":" .. identifier)
+        end
+
+        if not conf.audit_only then
+            return kong.response.exit(conf.error_code, { error = { message = conf.error_message }})
+        end
     end
 
     kong.ctx.plugin.timer = function()
